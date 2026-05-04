@@ -1,19 +1,18 @@
-# PersonaLive on macOS Apple Silicon (MPS)
+# PersonaLive offline inference on macOS Apple Silicon (MPS)
 
-This branch adds a first-class PyTorch MPS path for Apple Silicon Macs.
+This branch is intentionally scoped to offline PyTorch MPS inference on Apple Silicon.
 
-Status:
+We are not pretending CUDA exists on Mac. CUDA-only paths stay CUDA-only:
 
-- Offline inference: intended to work on MPS after weights are installed.
-- Online/web UI: intended to start on MPS with `--acceleration none`, but expect lower FPS than CUDA/TensorRT.
-- TensorRT: not supported on Mac. It requires NVIDIA CUDA, TensorRT, and pycuda.
-- xformers: not supported on MPS. It is automatically disabled outside CUDA.
+- TensorRT is not supported on Mac. It requires NVIDIA CUDA, TensorRT, and pycuda.
+- xformers is not supported on MPS. It is automatically disabled outside CUDA.
+- Online/web streaming is deferred. First target is a verified offline render path.
 
 ## Hardware target
 
-Test target requested: MacBook Pro M2 with 96GB unified memory.
+Target machine: MacBook Pro M2 with 96GB unified memory.
 
-96GB is enough memory for the model. The limitation is MPS compute throughput and missing CUDA-only acceleration, not RAM.
+96GB should be enough memory for offline inference. The limiting factor is MPS compute throughput and unsupported CUDA-only acceleration, not RAM.
 
 ## Setup
 
@@ -73,39 +72,19 @@ For performance experiments after correctness is proven, change `weight_dtype` i
 
 ## Online/web UI
 
-Run without CUDA-only acceleration:
+Not supported by this branch yet.
 
-```bash
-python inference_online.py \
-  --device mps \
-  --acceleration none \
-  --config_path ./configs/prompts/personalive_online_mps.yaml
-```
-
-Open:
-
-```text
-http://localhost:7860
-```
-
-If latency is too high, reduce workload before changing model code:
-
-- lower `height`/`width` in `configs/prompts/personalive_online_mps.yaml`
-- keep `num_inference_steps: 4`
-- keep `temporal_window_size: 4`
-- keep `--acceleration none`
+The online path still follows the upstream CUDA/CPU behavior. Do not use it as evidence that MPS offline support is broken or working. After offline MPS generation is verified with real weights, online can be added as a separate branch with explicit MPS process/queue handling and latency tuning.
 
 ## Implementation notes
 
 The port deliberately does not fake CUDA. It adds:
 
-- `src/utils/device.py` with `resolve_device(auto|cuda|mps|cpu)`
+- `src/utils/device.py` with `resolve_device(auto|cuda|mps|cpu)` for offline inference
 - safe CUDA/MPS cache helpers
 - portable random generator creation for MPS
 - automatic xformers disablement on non-CUDA devices
-- online `--device` CLI support
-- MPS-specific configs and requirements
+- MPS-specific offline config and requirements
 - OpenCV video decoding fallback because decord has no macOS arm64 wheels
-- CPU tensor queues between the web process and generation process, then device transfer inside the child process
 
 The core model is more MPS-friendly than it first appears: the so-called 3D convolutions are implemented as inflated 2D convolutions by reshaping frames into batch, which avoids many unsupported true-Conv3D MPS paths.

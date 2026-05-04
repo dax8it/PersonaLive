@@ -76,11 +76,9 @@ def read_images_from_queue(queue, num_frames_needed, device, stop_event=None, pr
         images.append(queue.get())
 
     if prefer_latest:
-        selected = images[-num_frames_needed:]
+        return images[-num_frames_needed:]
     else:
-        selected = select_images(images, num_frames_needed)
-
-    return [image.to(device) for image in selected]
+        return select_images(images, num_frames_needed)
 
 
 def select_images(images, num_images: int):
