@@ -41,7 +41,10 @@ We present PersonaLive, a `real-time` and `streamable` diffusion framework capab
 
 ## 🚀 Getting Started
 ### 🛠 Installation
-```
+
+> Apple Silicon / MPS users: see [README_MAC_MPS.md](README_MAC_MPS.md). TensorRT and xformers are CUDA-only; use `--device mps --acceleration none` on Mac.
+
+```bash
 # clone this repo
 git clone https://github.com/GVCLab/PersonaLive
 cd PersonaLive

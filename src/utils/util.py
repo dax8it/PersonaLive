@@ -71,7 +71,8 @@ def seed_everything(seed):
     import numpy as np
 
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
     np.random.seed(seed % (2**32))
     random.seed(seed)
 
@@ -334,7 +335,10 @@ def get_fps(video_path):
     container.close()
     return fps
 
-def draw_keypoints(keypoints, height=512, width=512, device="cuda"):
+def draw_keypoints(keypoints, height=512, width=512, device=None):
+    if device is None:
+        from src.utils.device import resolve_device
+        device = resolve_device("auto")
     colors = torch.tensor([
         [255, 0, 0],
         [255, 255, 0],

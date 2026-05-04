@@ -578,7 +578,7 @@ class Pose2VideoPipeline(DiffusionPipeline):
 
         if do_classifier_free_guidance:
             ref_motion_emb = mot_bbox_param[:1]
-            ref_keypoints = draw_keypoints(ref_motion_emb).unsqueeze(2)
+            ref_keypoints = draw_keypoints(ref_motion_emb, device=device).unsqueeze(2)
             ref_keypoints = ref_keypoints.to(device=device, dtype=self.pose_guider.dtype)
             ref_pose_fea = self.pose_guider(ref_keypoints)
         

@@ -21,6 +21,7 @@ from threading import Lock, Thread
 from torchvision import transforms as T
 from einops import rearrange
 from src.utils.util import draw_keypoints, get_boxes
+from src.utils.device import get_torch_dtype, make_generator, resolve_device, safe_empty_cache, supports_xformers
 import torch.nn.functional as F
 
 def map_device(device_or_str):
@@ -30,7 +31,7 @@ class PersonaLive:
     def __init__(self, args, device=None):
         cfg = OmegaConf.load(args.config_path)
         if(device is None):
-            self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+            self.device = resolve_device("auto")
         else:
             self.device = map_device(device)
 
@@ -39,10 +40,11 @@ class PersonaLive:
 
         if cfg.dtype == "fp16":
             self.numpy_dtype = np.float16
-            self.dtype = torch.float16
         elif cfg.dtype == "fp32":
             self.numpy_dtype = np.float32
-            self.dtype = torch.float32
+        else:
+            self.numpy_dtype = np.float32
+        self.dtype = get_torch_dtype(cfg.dtype, self.device)
 
         infer_config = OmegaConf.load(cfg.inference_config)
         sched_kwargs = OmegaConf.to_container(
@@ -121,8 +123,7 @@ class PersonaLive:
         self.timesteps = torch.tensor([999, 666, 333, 0], device=self.device).long()
         self.scheduler.set_step_length(333)
         
-        self.generator = torch.Generator(self.device)
-        self.generator.manual_seed(cfg.seed)
+        self.generator = make_generator(self.device, cfg.seed)
 
         self.batch_size = cfg.batch_size
         self.vae_scale_factor = 8
@@ -135,12 +136,15 @@ class PersonaLive:
         
         self.cfg = cfg
         self.reset()
-        torch.cuda.empty_cache()
+        safe_empty_cache(self.device)
 
-        try:
-            self.enable_xformers_memory_efficient_attention()
-        except Exception as e:
-            print("Failed to enable xformers:", e)
+        if supports_xformers(self.device):
+            try:
+                self.enable_xformers_memory_efficient_attention()
+            except Exception as e:
+                print("Failed to enable xformers:", e)
+        else:
+            print(f"xformers disabled on device '{self.device.type}'. Using standard attention.")
     
     def reset(self):
         self.first_frame = True

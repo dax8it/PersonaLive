@@ -16,6 +16,7 @@ class Args(NamedTuple):
     ssl_keyfile: str
     debug: bool
     acceleration: str
+    device: str
     engine_dir: str
     config_path: str
 
@@ -32,6 +33,7 @@ SAFETY_CHECKER = os.environ.get("SAFETY_CHECKER", None) == "True"
 USE_TAESD = os.environ.get("USE_TAESD", "True") == "True"
 ENGINE_DIR = os.environ.get("ENGINE_DIR", "engines")
 ACCELERATION = os.environ.get("ACCELERATION", "xformers")
+DEVICE = os.environ.get("DEVICE", "auto")
 
 default_host = os.getenv("HOST", "0.0.0.0")
 default_port = int(os.getenv("PORT", "7860"))
@@ -97,6 +99,13 @@ parser.add_argument(
     default=ACCELERATION,
     choices=["none", "xformers", "tensorrt"],
     help="Acceleration",
+)
+parser.add_argument(
+    "--device",
+    type=str,
+    default=DEVICE,
+    choices=["auto", "cuda", "mps", "cpu"],
+    help="Inference device. auto prefers CUDA, then Apple MPS, then CPU.",
 )
 parser.add_argument(
     "--engine-dir",

@@ -1,5 +1,6 @@
 import argparse
 import os
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 import sys
 from datetime import datetime
 import mediapipe as mp
@@ -18,7 +19,8 @@ from src.models.unet_2d_condition import UNet2DConditionModel
 from src.models.unet_3d import UNet3DConditionModel
 from src.pipelines.pipeline_pose2vid import Pose2VideoPipeline, Pose2VideoPipeline_Stream
 from src.utils.util import save_videos_grid, crop_face
-from decord import VideoReader
+from src.utils.device import get_torch_dtype, make_generator, resolve_device, str2bool, supports_xformers
+from src.utils.video import read_first_frame, read_video_frames
 from diffusers.utils.import_utils import is_xformers_available
 
 from src.models.motion_encoder.encoder import MotEncoder
@@ -34,9 +36,9 @@ def parse_args():
     parser.add_argument("-H", type=int, default=512)
     parser.add_argument("-L", type=int, default=100)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--use_xformers", type=bool, default=True)
-    parser.add_argument("--stream_gen", type=bool, default=True, help='use streaming generation strategy to reduce VRAM usage.')
+    parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "mps", "cpu"], help="Inference device. auto prefers CUDA, then Apple MPS, then CPU.")
+    parser.add_argument("--use_xformers", type=str2bool, default=True, help="Enable xformers on CUDA. Automatically ignored on MPS/CPU.")
+    parser.add_argument("--stream_gen", type=str2bool, default=True, help='use streaming generation strategy to reduce VRAM usage.')
     parser.add_argument("--reference_image", type=str, default='', help='Path to reference image. If provided, overrides test_cases from config.')
     parser.add_argument("--driving_video", type=str, default='', help='Path to driving video. If provided, overrides test_cases from config.')
     args = parser.parse_args()
@@ -44,14 +46,11 @@ def parse_args():
     return args
 
 def main(args):
-    device = args.device
+    device = resolve_device(args.device)
     print('device', device)
     config = OmegaConf.load(args.config)
 
-    if config.weight_dtype == "fp16":
-        weight_dtype = torch.float16
-    else:
-        weight_dtype = torch.float32
+    weight_dtype = get_torch_dtype(config.weight_dtype, device)
 
     vae = AutoencoderKL.from_pretrained(config.vae_path).to(device, dtype=weight_dtype)
     # if use tiny VAE
@@ -82,7 +81,7 @@ def main(args):
     )
     scheduler = DDIMScheduler(**sched_kwargs)
 
-    generator = torch.manual_seed(args.seed)
+    generator = make_generator(device, args.seed)
     width, height = args.W, args.H
 
     # load pretrained weights
@@ -125,7 +124,7 @@ def main(args):
         strict=False,
     )
     
-    if args.use_xformers:
+    if supports_xformers(device, args.use_xformers):
         if is_xformers_available(): 
             try:
                 reference_unet.enable_xformers_memory_efficient_attention()
@@ -134,6 +133,8 @@ def main(args):
                 print("Failed to enable xformers:", e)
         else:
             print("xformers is not available. Make sure it is installed correctly.")
+    elif args.use_xformers:
+        print(f"xformers requested but disabled on device '{device.type}'. Using standard attention.")
 
     mp_face_mesh = mp.solutions.face_mesh
     face_mesh = mp_face_mesh.FaceMesh(static_image_mode=True, max_num_faces=1)
@@ -188,24 +189,21 @@ def main(args):
                 continue
 
             if ref_image_path.endswith('.mp4'):
-                src_vid = VideoReader(ref_image_path)
-                ref_img = src_vid[0].asnumpy()
+                ref_img = read_first_frame(ref_image_path)
                 ref_img = Image.fromarray(ref_img).convert("RGB")
             else:
                 ref_img = Image.open(ref_image_path).convert("RGB")
 
-            control = VideoReader(pose_video_path)
-            video_length = min(len(control) // 4 * 4, args.L)
-            sel_idx = range(len(control))[:video_length]
-            control = control.get_batch([sel_idx]).asnumpy() # N, H, W, C
+            video_length = args.L // 4 * 4
+            control = read_video_frames(pose_video_path, max_frames=video_length, multiple_of=4) # N, H, W, C
+            video_length = len(control)
 
             ref_image_pil = ref_img.copy()
             ref_patch = crop_face(ref_image_pil, face_mesh)
             ref_face_pil = Image.fromarray(ref_patch).convert("RGB")
 
             size = args.H
-            generator = torch.Generator(device=device)
-            generator.manual_seed(42)
+            generator = make_generator(device, args.seed)
 
             dri_faces = []
             ori_pose_images = []

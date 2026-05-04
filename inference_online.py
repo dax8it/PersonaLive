@@ -1,4 +1,5 @@
 import os
+os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 import signal
 import sys
 import json
@@ -18,6 +19,7 @@ from types import SimpleNamespace
 import asyncio
 import mimetypes
 import torch
+from src.utils.device import resolve_device
 
 from webcam.config import config, Args
 from webcam.util import pil_to_frame, bytes_to_pil, is_firefox, bytes_to_tensor
@@ -291,10 +293,14 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM, signal_handler)
     mp.set_start_method("spawn", force=True)
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = resolve_device(config.device)
     if config.acceleration == "tensorrt":
+        if device.type != "cuda":
+            raise RuntimeError("TensorRT acceleration requires CUDA/NVIDIA. Use --acceleration none on Mac MPS.")
         from webcam.vid2vid_trt import Pipeline
     else:
+        if config.acceleration == "xformers" and device.type != "cuda":
+            print(f"xformers acceleration requested but disabled on device '{device.type}'. Using standard attention.")
         from webcam.vid2vid import Pipeline
     
     pipeline = Pipeline(config, device)
